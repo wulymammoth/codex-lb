@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: dev-runtime
     env_file:
       - .env.local
     ports:

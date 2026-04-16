@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 COPY frontend ./
 RUN bun run build
 
-FROM python:3.13-slim AS python-build
+FROM python:3.13-slim-bookworm AS python-build
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -28,7 +28,15 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project --extra metrics --extra tracing
 
-FROM python:3.13-slim AS runtime
+RUN mkdir -p /var/lib/codex-lb
+
+# Stage arch-specific shared libraries for distroless copy.
+RUN ARCH="$(uname -m)" && \
+    mkdir -p /staged-libs/lib /staged-libs/usr/lib && \
+    cp -a "/lib/${ARCH}-linux-gnu" "/staged-libs/lib/${ARCH}-linux-gnu" && \
+    cp -a "/usr/lib/${ARCH}-linux-gnu" "/staged-libs/usr/lib/${ARCH}-linux-gnu"
+
+FROM python:3.13-slim-bookworm AS dev-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -52,3 +60,26 @@ USER app
 EXPOSE 2455 1455
 
 CMD ["/app/scripts/docker-entrypoint.sh"]
+
+FROM gcr.io/distroless/base-debian12:nonroot AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:/usr/local/bin:$PATH"
+
+WORKDIR /app
+
+COPY --from=python-build /staged-libs/lib/ /lib/
+COPY --from=python-build /staged-libs/usr/lib/ /usr/lib/
+COPY --from=python-build /usr/local /usr/local
+COPY --from=python-build /opt/venv /opt/venv
+COPY --from=python-build --chown=nonroot:nonroot /var/lib/codex-lb /var/lib/codex-lb
+COPY --chown=nonroot:nonroot app app
+COPY --chown=nonroot:nonroot config config
+COPY --chown=nonroot:nonroot scripts scripts
+COPY --from=frontend-build --chown=nonroot:nonroot /app/app/static app/static
+
+EXPOSE 2455 1455
+
+USER nonroot:nonroot
+CMD ["python", "/app/scripts/distroless-entrypoint.py"]

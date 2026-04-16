@@ -1,0 +1,4 @@
+- [x] 1. Add a deployment-installation spec delta covering the hardened default Docker runtime and the preserved compose development target.
+- [x] 2. Refactor `Dockerfile` so the default final stage ships a distroless Debian 12 runtime and a separate `dev-runtime` stage preserves the existing compose workflow.
+- [x] 3. Update local Docker compose to build the `dev-runtime` target and remove redundant Docker build configuration that could drift.
+- [x] 4. Run targeted configuration/build verification for the Docker changes and record the remaining verification limit: Docker Desktop was not running in this session, so no live image build could be completed.
