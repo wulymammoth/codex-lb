@@ -355,7 +355,8 @@ class ProxyService:
     ) -> AsyncIterator[str]:
         dashboard_settings = await get_settings_cache().get()
         runtime_config = _http_bridge_runtime_config(dashboard_settings, get_settings())
-        if not runtime_config.enabled:
+        upstream_stream_transport = _resolve_upstream_stream_transport(dashboard_settings.upstream_stream_transport)
+        if not runtime_config.enabled or upstream_stream_transport == "http":
             async for line in self._stream_with_retry(
                 payload,
                 headers,

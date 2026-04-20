@@ -479,6 +479,67 @@ async def test_stream_via_http_bridge_injects_durable_previous_response_anchor(
 
 
 @pytest.mark.asyncio
+async def test_stream_http_bridge_or_retry_bypasses_bridge_when_dashboard_forces_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = proxy_service.ProxyService(cast(Any, nullcontext()))
+    payload = proxy_service.ResponsesRequest.model_validate(
+        {"model": "gpt-5.4", "instructions": "hi", "input": "hello"},
+    )
+    dashboard_settings = SimpleNamespace(
+        sticky_threads_enabled=False,
+        upstream_stream_transport="http",
+        prefer_earlier_reset_accounts=False,
+        routing_strategy="usage_weighted",
+        openai_cache_affinity_max_age_seconds=1800,
+        http_responses_session_bridge_prompt_cache_idle_ttl_seconds=3600,
+        http_responses_session_bridge_gateway_safe_mode=False,
+    )
+    app_settings = _make_app_settings(bridge_enabled=True)
+    stream_with_retry_called = False
+    stream_via_bridge_called = False
+
+    async def fake_stream_with_retry(*args: object, **kwargs: object):
+        nonlocal stream_with_retry_called
+        del args, kwargs
+        stream_with_retry_called = True
+        yield 'data: {"type":"response.completed","response":{"id":"resp_http_forced"}}\n\n'
+
+    async def fake_stream_via_bridge(*args: object, **kwargs: object):
+        nonlocal stream_via_bridge_called
+        del args, kwargs
+        stream_via_bridge_called = True
+        yield 'data: {"type":"response.completed","response":{"id":"resp_bridge"}}\n\n'
+
+    monkeypatch.setattr(
+        proxy_service,
+        "get_settings_cache",
+        lambda: cast(Any, SimpleNamespace(get=AsyncMock(return_value=dashboard_settings))),
+    )
+    monkeypatch.setattr(proxy_service, "get_settings", lambda: app_settings)
+    monkeypatch.setattr(service, "_stream_with_retry", fake_stream_with_retry)
+    monkeypatch.setattr(service, "_stream_via_http_bridge", fake_stream_via_bridge)
+
+    chunks = [
+        chunk
+        async for chunk in service._stream_http_bridge_or_retry(
+            payload,
+            {"x-codex-session-id": "sid-123"},
+            codex_session_affinity=True,
+            propagate_http_errors=False,
+            openai_cache_affinity=False,
+            api_key=None,
+            api_key_reservation=None,
+            suppress_text_done_events=False,
+        )
+    ]
+
+    assert chunks == ['data: {"type":"response.completed","response":{"id":"resp_http_forced"}}\n\n']
+    assert stream_with_retry_called is True
+    assert stream_via_bridge_called is False
+
+
+@pytest.mark.asyncio
 async def test_http_bridge_waits_for_registration_for_hard_keys_before_startup_complete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -52,6 +52,14 @@ See `openspec/specs/responses-api-compat/spec.md` for normative requirements.
 - **Websocket handshake forbidden/not-found:** Auto transport now fails loud on `403` / `404` instead of silently hiding the websocket regression behind HTTP fallback.
 - **Invalid request payloads:** Return 4xx with `invalid_request_error`.
 
+## Incident Note: Forced HTTP Transport Was Not Fully Enforced
+
+- **Symptom:** Local OpenCode sessions using `gpt-5.4` could appear to stall after the first prompt with no client-visible error, even after operators changed dashboard `upstream_stream_transport` to `http`.
+- **Root-cause evidence:** Request logs for the stalled requests recorded `transport="http"` alongside `stream_idle_timeout`, `stream_incomplete`, and `Upstream websocket closed before response.completed (close_code=1000)`.
+- **Actual cause:** The direct HTTP retry stream path respected forced `http`, but the HTTP bridge selector still routed eligible requests into the websocket-backed bridge path. That bridge path opens and maintains an internal upstream websocket for continuity, so forced `http` was not actually a hard requirement end-to-end.
+- **Temporary local workaround:** Set `CODEX_LB_HTTP_RESPONSES_SESSION_BRIDGE_ENABLED=false` so HTTP Responses traffic bypasses the bridge entirely.
+- **Repo fix:** `_stream_http_bridge_or_retry` now treats dashboard `upstream_stream_transport="http"` as a hard bypass condition and routes those requests through `_stream_with_retry` instead of `_stream_via_http_bridge`.
+
 ## Error Envelope Mapping (Reference)
 
 - 401 → `invalid_api_key`
